@@ -68,11 +68,18 @@ const GENRE_MAP = {
 const TYPE_LABEL = {tv:"剧集",movie:"电影",anime:"动漫",variety:"综艺/真人秀"};
 const SORT_LABEL = {hot:"平台热度榜",new:"最新上线榜",top:"TMDB 高分榜",upcoming:"即将上映"};
 
-/* 浏览器直连 TMDB：Key 由用户在设置弹窗输入，仅保存在当前浏览器
- * localStorage，并以 api_key 查询参数直接发送给 TMDB，不经过任何中间服务器。 */
-const API_BASE = "https://api.themoviedb.org/3";
+/* 双模式请求：
+ *  - proxy  ：Cloudflare 已配置服务端 TMDB_API_KEY，浏览器请求同源 /api/3，密钥不下发
+ *  - direct ：服务端无 Key（或本地 file:// 打开），用户在弹窗输入 Key，仅存
+ *             localStorage，以 api_key 查询参数直连 TMDB，不回传任何服务器
+ * 启动时先 GET /api/config 探测服务端状态。 */
+const TMDB_ORIGIN = "https://api.themoviedb.org/3";
+const PROXY_BASE = "/api/3";
 const IMG = "https://image.tmdb.org/t/p";
 const API_KEY_STORE = "gtv_tmdb_api_key";
+
+const runtime = { mode: "direct" }; // "proxy" | "direct"
+const KEY_ERROR_CODES = ["MISSING_API_KEY", "INVALID_API_KEY", "SERVER_KEY_INVALID"];
 
 function getStoredKey(){
   try{ return localStorage.getItem(API_KEY_STORE) || ""; }catch{ return ""; }
@@ -84,33 +91,61 @@ function setStoredKey(v){
   }catch{}
 }
 
-/* 统一请求：未保存 Key 直接本地报错；否则把 api_key 附加到查询串直连 TMDB */
+/* 启动探测：Worker 存在且已配置服务端 Key → proxy；其余情况（无 Key / 本地打开）→ direct */
+async function initRuntime(){
+  try{
+    const res = await fetch("/api/config");
+    if(!res.ok) return;
+    const cfg = await res.json();
+    if(cfg.serverKeyConfigured) runtime.mode = "proxy";
+  }catch{ /* file:// 直开或非 Worker 环境：保持 direct */ }
+}
+
+/* 构造请求地址：proxy 模式走同源（参数透传，Key 由 Worker 注入），direct 模式直连 TMDB */
+function buildApiUrl(path, params = {}){
+  const u = runtime.mode === "proxy"
+    ? new URL(PROXY_BASE + path, location.origin)
+    : new URL(TMDB_ORIGIN + path);
+  if(runtime.mode === "direct") u.searchParams.set("api_key", getStoredKey());
+  Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+  return u;
+}
+
+/* 统一请求封装与错误归一化 */
 async function apiFetch(url){
-  const key = getStoredKey();
-  if(!key){
+  if(runtime.mode === "direct" && !getStoredKey()){
     const err = new Error("missing api key");
     err.code = "MISSING_API_KEY";
     throw err;
   }
-  const u = new URL(url);
-  u.searchParams.set("api_key", key);
-  const res = await fetch(u);
+  const res = await fetch(url);
   if(!res.ok){
     let payload = null;
     try{ payload = await res.json(); }catch{}
     const err = new Error(payload?.status_message || "");
-    err.code = res.status === 401 ? "INVALID_API_KEY" : "HTTP_" + res.status;
+    if(runtime.mode === "proxy"){
+      if(payload?.code === "NO_SERVER_KEY") err.code = "MISSING_API_KEY";
+      else if(res.status === 401) err.code = "SERVER_KEY_INVALID";
+      else err.code = "HTTP_" + res.status;
+    }else{
+      err.code = res.status === 401 ? "INVALID_API_KEY" : "HTTP_" + res.status;
+    }
     throw err;
   }
   return res;
 }
 
-/* 密钥缺失/失效：齿轮按钮金色脉冲提醒；恢复正常后取消高亮（按钮常驻可随时修改 Key） */
+/* 密钥问题 UI：proxy 正常时隐藏齿轮；direct 模式（或服务端 Key 失效需本地兜底）显示并提醒 */
+function applyKeyEntryVisibility(){
+  $("#settingsBtn").hidden = runtime.mode === "proxy";
+}
 function markKeyIssue(){
+  $("#settingsBtn").hidden = false;
   $("#settingsBtn").classList.add("attention");
 }
 function clearKeyIssue(){
   $("#settingsBtn").classList.remove("attention");
+  if(runtime.mode === "proxy") $("#settingsBtn").hidden = true;
 }
 
 // ---------- 2. 全局状态 ----------
@@ -187,7 +222,7 @@ async function runDiscover(){
   }
   const endpoint = state.mediaType==="movie" ? "/discover/movie" : "/discover/tv";
   try{
-    const res = await apiFetch(`${API_BASE}${endpoint}?${q.params}`);
+    const res = await apiFetch(buildApiUrl(endpoint, Object.fromEntries(q.params)));
     const data = await res.json();
     if(seq!==requestSeq) return;
     state.items = data.results||[];
@@ -198,9 +233,9 @@ async function runDiscover(){
   }catch(e){
     if(seq!==requestSeq) return;
     state.items=[];
-    if(e.code==="MISSING_API_KEY" || e.code==="INVALID_API_KEY"){
+    if(KEY_ERROR_CODES.includes(e.code)){
       markKeyIssue();
-      renderKeyError(e.code==="MISSING_API_KEY");
+      renderKeyError(e.code);
     }else{
       renderError("请求失败，请检查网络后重试。");
     }
@@ -209,12 +244,10 @@ async function runDiscover(){
 
 async function runSearch(){
   const seq = ++requestSeq;
-  const p = new URLSearchParams({
-    language:"zh-CN", page:String(state.page),
-    query:state.query, include_adult:"false"
-  });
   try{
-    const res = await apiFetch(`${API_BASE}/search/multi?${p}`);
+    const res = await apiFetch(buildApiUrl("/search/multi", {
+      language:"zh-CN", page:String(state.page), query:state.query, include_adult:"false"
+    }));
     const data = await res.json();
     if(seq!==requestSeq) return;
     // multi 搜索含人物条目，只保留电影与剧集
@@ -226,9 +259,9 @@ async function runSearch(){
   }catch(e){
     if(seq!==requestSeq) return;
     state.items=[];
-    if(e.code==="MISSING_API_KEY" || e.code==="INVALID_API_KEY"){
+    if(KEY_ERROR_CODES.includes(e.code)){
       markKeyIssue();
-      renderKeyError(e.code==="MISSING_API_KEY");
+      renderKeyError(e.code);
     }else{
       renderError("搜索失败，请检查网络后重试。");
     }
@@ -311,14 +344,30 @@ function renderUnsupported(){
 function renderError(msg){
   $("#grid").innerHTML = `<div class="state"><div class="big">📡</div><h3>网络异常</h3><p>${msg}</p><button class="retry" id="retryBtn">重新加载</button></div>`;
 }
-function renderKeyError(missing){
+function renderKeyError(code){
+  const map = {
+    MISSING_API_KEY: {
+      title:"需要配置 TMDB API Key",
+      desc:"服务端未配置密钥。点击下方按钮输入你自己的 TMDB API Key，密钥仅保存在当前浏览器，不会上传。",
+      btn:"配置 API Key"
+    },
+    INVALID_API_KEY: {
+      title:"API Key 无效",
+      desc:"当前浏览器保存的 API Key 未通过 TMDB 校验，可能已输错或被重置，请重新输入。",
+      btn:"重新输入 Key"
+    },
+    SERVER_KEY_INVALID: {
+      title:"服务端密钥暂时不可用",
+      desc:"站点配置的 TMDB 密钥校验失败。你可以输入自己的 API Key 继续浏览，密钥仅保存在当前浏览器。",
+      btn:"输入我的 API Key"
+    }
+  };
+  const t = map[code] || map.MISSING_API_KEY;
   $("#grid").innerHTML = `<div class="state">
     <div class="big">🔑</div>
-    <h3>${missing ? "需要配置 TMDB API Key" : "API Key 无效"}</h3>
-    <p>${missing
-      ? "还没有配置 API Key。点击下方按钮输入你自己的 TMDB API Key，密钥仅保存在当前浏览器。"
-      : "当前保存的 API Key 未通过 TMDB 校验，可能已输错或被重置，请重新输入。"}</p>
-    <button class="retry" id="configKeyBtn">${missing ? "配置 API Key" : "重新输入 Key"}</button>
+    <h3>${t.title}</h3>
+    <p>${t.desc}</p>
+    <button class="retry" id="configKeyBtn">${t.btn}</button>
   </div>`;
 }
 
@@ -402,22 +451,14 @@ const TV_STATUS_TEXT = {
   "Pilot":"试播集"
 };
 
-/* 构造带 api_key 的 TMDB 直连地址 */
-function tmdbUrl(path, params={}){
-  const u = new URL(API_BASE + path);
-  u.searchParams.set("api_key", getStoredKey());
-  Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
-  return u;
-}
-
 /* 详情附加信息：集数/片长 + 播放平台。节点 isConnected 检查防止弹窗切换后的过期回填 */
 async function loadDetailExtra(id, isMovie, metaEl, provEl){
   const media = isMovie ? "movie" : "tv";
-  if(!getStoredKey()){ metaEl?.remove(); provEl && (provEl.innerHTML = ""); return; }
+  if(runtime.mode === "direct" && !getStoredKey()){ metaEl?.remove(); provEl && (provEl.innerHTML = ""); return; }
   try{
     const [detailRes, provRes] = await Promise.all([
-      fetch(tmdbUrl(`/${media}/${id}`, {language:"zh-CN"})),
-      fetch(tmdbUrl(`/${media}/${id}/watch/providers`))
+      fetch(buildApiUrl(`/${media}/${id}`, {language:"zh-CN"})),
+      fetch(buildApiUrl(`/${media}/${id}/watch/providers`))
     ]);
     if(metaEl?.isConnected){
       if(detailRes.ok){
@@ -511,7 +552,9 @@ function saveApiKey(){
   const input = $("#apiKeyInput");
   const v = input.value.trim();
   if(!v){ input.classList.add("invalid"); input.focus(); return; }
-  setStoredKey(v);
+  setStoredKey(v);                // 仅保存在浏览器 localStorage，不回传服务器
+  runtime.mode = "direct";        // 后续请求直连 TMDB
+  applyKeyEntryVisibility();
   closeModals();
   state.page = 1;
   loadList();
@@ -600,4 +643,8 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModals();});
 
 // ---------- 10. 启动 ----------
 renderChips();
-loadList();
+(async function bootstrap(){
+  await initRuntime();          // 先探测 Cloudflare 是否配置了服务端 Key
+  applyKeyEntryVisibility();
+  loadList();
+})();
