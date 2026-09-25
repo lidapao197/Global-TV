@@ -1,0 +1,12 @@
+{
+  "name": "global-tv",
+  "main": "main.js",
+  "compatibility_date": "2025-01-01",
+  "rules": [
+    // Worker 入口按 ES 模块处理
+    { "type": "ESModule", "globs": ["main.js"] },
+    // 浏览器侧资源以文本字符串内联进 Worker，按路径原样返回；
+    // fallthrough 允许后续默认规则继续匹配，避免与内置 **/*.html 等规则冲突
+    { "type": "Text", "globs": ["index.html", "index.css", "index.js"], "fallthrough": true }
+  ]
+}

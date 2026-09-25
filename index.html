@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>全球影视平台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+<!-- ===== 顶部 ===== -->
+<header class="header">
+  <a class="brand" href="#">
+    <span class="brand-mark">全球影视平台<em>·</em>TV</span>
+  </a>
+  <form class="search" id="searchForm" role="search">
+    <svg class="search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <input type="search" id="searchInput" placeholder="搜索影片名称、剧集、演员…" autocomplete="off" aria-label="搜索影片">
+    <button type="button" class="search-clear" id="searchClear" title="清除搜索" hidden><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+    <button type="submit" class="search-go">搜索</button>
+  </form>
+  <button type="button" class="icon-btn" id="settingsBtn" title="设置 API Key">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<!-- ===== 筛选工具栏 ===== -->
+<div class="toolbar">
+  <div class="seg-row">
+    <span class="seg-label">分类</span>
+    <div class="seg" id="typeSeg">
+      <button data-v="tv" class="active">📺 剧集</button>
+      <button data-v="movie">🎬 电影</button>
+      <button data-v="anime">🐰 动漫</button>
+      <button data-v="variety">🎤 综艺</button>
+    </div>
+    <span class="seg-label">榜单</span>
+    <div class="seg" id="sortSeg">
+      <button data-v="hot">🔥 热度</button>
+      <button data-v="new" class="active">🆕 最新</button>
+      <button data-v="top">🏆 高分</button>
+      <button data-v="upcoming">⏳ 即将上映</button>
+    </div>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<!-- ===== 结果 ===== -->
+<div class="results-head">
+  <h2 id="listTitle">🌟 <span>全球综合</span> · 最新上线榜</h2>
+  <span class="count" id="countTxt"></span>
+</div>
+<main class="grid" id="grid"></main>
+
+<div class="pager" id="pager">
+  <button id="prevBtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>上一页</button>
+  <span class="pg" id="pgTxt">第 1 页</span>
+  <button id="nextBtn">下一页<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></button>
+</div>
+
+<footer class="footer">
+  <span>全球影视平台 ALL IN ONE · 数据来源 TMDB </span>
+  <span>改编 𝙈𝙖𝙠𝙠𝙖𝙋𝙖𝙠𝙠𝙖 · js</span>
+</footer>
+
+<!-- ===== 详情弹窗 ===== -->
+<div class="modal-layer" id="detailModal">
+  <div class="modal-mask"></div>
+  <div class="detail" id="detailBox"></div>
+</div>
+
+<!-- ===== API Key 设置弹窗 ===== -->
+<div class="modal-layer" id="settingsModal">
+  <div class="modal-mask"></div>
+  <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <button class="detail-close" id="sClose" aria-label="关闭">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    </button>
+    <h3 id="settingsTitle">🔑 配置 TMDB API Key</h3>
+    <p class="settings-desc" id="settingsDesc">输入你自己的 TMDB v3 API Key 后即可浏览。密钥仅保存在<strong>当前浏览器</strong>（localStorage），数据请求直接发送给 TMDB 官方接口，不会上传到本站或任何中间服务器。请勿在公共电脑上保存。</p>
+    <input type="password" id="apiKeyInput" placeholder="粘贴 TMDB v3 API Key" autocomplete="off" spellcheck="false">
+    <p class="settings-hint">没有 Key？在 <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org → Settings → API</a> 免费申请。</p>
+    <div class="settings-actions">
+      <button class="btn-ghost" id="apiKeyClear" type="button">清除</button>
+      <button class="btn-primary" id="apiKeySave" type="button">保存并重试</button>
+    </div>
+  </div>
+</div>
+
+<script src="index.js"></script>
+</body>
+</html>
