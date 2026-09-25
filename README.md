@@ -2,7 +2,7 @@
 
 基于 **TMDB** 数据的全球影视聚合浏览站：一个页面纵览 Netflix、HBO、Disney+、腾讯视频、爱奇艺、B站、tvN、ABC 等 24 个国内外平台/电视台与地区的剧集、电影、动漫、综艺榜单，支持关键词搜索与详情跳转。
 
-纯原生 HTML / CSS / JavaScript 实现，**无框架、无构建步骤**；Cloudflare Worker 托管静态页面并代理 TMDB 接口。密钥采用**服务端优先、本地兜底**策略：站点配置了 `TMDB_API_KEY` 时访客无需任何输入；未配置时才弹窗让用户填写自己的 Key（仅保存在浏览器 localStorage，直连 TMDB，不上传站点）。
+纯原生 HTML / CSS / JavaScript 实现，**无框架、无构建步骤**；前端由 Cloudflare **Static Assets** 直接托管（CDN 分发），Worker 仅负责代理 TMDB 接口。密钥采用**服务端优先、本地兜底**策略：站点配置了 `TMDB_API_KEY` 时访客无需任何输入；未配置时才弹窗让用户填写自己的 Key（仅保存在浏览器 localStorage，直连 TMDB，不上传站点）。
 
 ## 功能特性
 
@@ -18,15 +18,19 @@
 
 ```
 Global-TV/
-├── index.html       # 页面结构（导航 / 筛选工具栏 / 结果网格 / 分页 / 详情弹窗）
-├── index.css        # 全部样式：CSS 变量主题、布局、卡片、弹窗、骨架屏、响应式
-├── index.js         # 浏览器前端脚本：平台配置、API 请求、渲染、搜索、事件交互
-├── main.js          # Cloudflare Worker 入口：静态托管 + /api/config 密钥探测 + /api/3 TMDB 代理
-├── wrangler.jsonc   # Wrangler 配置：入口 main.js 与 Text 模块打包规则
+├── assets/
+│   ├── index.html    # 页面结构（导航 / 筛选工具栏 / 结果网格 / 分页 / 详情弹窗）
+│   ├── index.css     # 全部样式：CSS 变量主题、布局、卡片、弹窗、骨架屏、响应式
+│   └── index.js      # 浏览器前端脚本：平台配置、API 请求、渲染、搜索、事件交互
+├── main.js           # Cloudflare Worker 入口：/api/config 密钥探测 + /api/3 TMDB 代理
+├── wrangler.jsonc    # Wrangler 配置：入口 main.js 与 Static Assets 目录
 └── README.md
 ```
 
-> 注意：Worker 入口文件是 `main.js`（不是 wrangler 默认的 `index.js`），`wrangler.jsonc` 中已显式指定 `main`；前端三件套通过 Text 模块规则在构建时内联进 Worker。
+> 注意：
+> - Worker 入口文件是 `main.js`（不是 wrangler 默认的 `index.js`），`wrangler.jsonc` 中已显式指定 `main`。
+> - 前端三件套放在 `assets/` 目录，由 Cloudflare Static Assets 直接托管：访问 `/` 自动返回 `index.html`，静态资源自带 CDN 缓存与正确 content-type，Worker 不参与页面分发。
+> - 本地预览可直接双击 `assets/index.html` 打开（数据接口在本地不可用，界面与弹窗交互可正常体验）。
 
 ## 架构说明
 
@@ -35,11 +39,12 @@ Global-TV/
 浏览器启动 ─────────┤
                     └─ 是 → 请求 /api/3/*（Worker 注入密钥，边缘缓存 1 小时）
                        否 → 弹窗收集本地 Key → 直连 api.themoviedb.org（?api_key=）
-Cloudflare Worker (main.js)：静态托管 + /api/config + /api/3 反向代理 TMDB
+页面 / 样式 / 脚本：Cloudflare Static Assets（assets/，CDN 直接分发）
+Cloudflare Worker (main.js)：/api/config + /api/3 反向代理 TMDB，其余路径转交 ASSETS
 ```
 
 - **proxy 模式**：环境变量 `TMDB_API_KEY` 存在，浏览器只请求同源 `/api/3`，密钥永不下发；GET 榜单边缘缓存 1 小时。
-- **direct 模式**：服务端无 Key（或直接双击 `index.html` 本地打开）时，用户在弹窗输入 Key，仅存 localStorage 并直连 TMDB，请求不经过 Worker、不会写入任何服务端配置。
+- **direct 模式**：服务端无 Key（或直接双击 `assets/index.html` 本地打开）时，用户在弹窗输入 Key，仅存 localStorage 并直连 TMDB，请求不经过 Worker、不会写入任何服务端配置。
 - 服务端 Key 意外失效（TMDB 401）时，页面允许访客用自己的 Key 临时兜底。
 - 海报与背景图直接使用 `https://image.tmdb.org/t/p/...`，并通过 `IntersectionObserver` 懒加载。
 
@@ -49,7 +54,7 @@ Cloudflare Worker (main.js)：静态托管 + /api/config + /api/3 反向代理 T
 
 ### 1. 推送代码到 Git 仓库
 
-将本项目推送到 GitHub 或 GitLab（公开 / 私有仓库均可，私有仓库需在下一步授权 Cloudflare 访问）。仓库根目录需包含 `wrangler.jsonc`，构建入口与文本模块打包规则已在其中配置好。
+将本项目推送到 GitHub 或 GitLab（公开 / 私有仓库均可，私有仓库需在下一步授权 Cloudflare 访问）。仓库根目录需包含 `wrangler.jsonc`，Worker 入口与 Static Assets 目录已在其中配置好。
 
 ### 2. 在 Dashboard 导入仓库
 
