@@ -5,8 +5,10 @@
   "rules": [
     // Worker 入口按 ES 模块处理
     { "type": "ESModule", "globs": ["main.js"] },
-    // 浏览器侧资源以文本字符串内联进 Worker，按路径原样返回；
-    // fallthrough 允许后续默认规则继续匹配，避免与内置 **/*.html 等规则冲突
-    { "type": "Text", "globs": ["index.html", "index.css", "index.js"], "fallthrough": true }
+    // 浏览器侧资源以文本字符串内联进 Worker，三者必须在同一条 Text 规则：
+    // 自定义 Text 规则优先于内置规则，若漏掉 index.html，内置 **/*.html
+    // 规则会被跳过导致构建失败；也不能加 fallthrough，否则 index.js 会继续
+    // 落到默认 ESModule 规则，在 Worker 运行时报 document is not defined
+    { "type": "Text", "globs": ["index.html", "index.css", "index.js"] }
   ]
 }
